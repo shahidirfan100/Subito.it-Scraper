@@ -1,0 +1,120 @@
+{
+  "actorSpecification": 1,
+  "fields": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "urn": {
+        "title": "URN",
+        "type": "string",
+        "description": "Unique listing identifier."
+      },
+      "title": {
+        "title": "Title",
+        "type": "string",
+        "description": "Listing title."
+      },
+      "price": {
+        "title": "Price",
+        "description": "Parsed listing price when available.",
+        "oneOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "string"
+          }
+        ]
+      },
+      "category": {
+        "title": "Category",
+        "type": "string",
+        "description": "Listing category name."
+      },
+      "region": {
+        "title": "Region",
+        "type": "string",
+        "description": "Region from listing location data."
+      },
+      "city": {
+        "title": "City",
+        "type": "string",
+        "description": "City from listing location data."
+      },
+      "posted_at": {
+        "title": "Posted At",
+        "type": "string",
+        "description": "Publication date in ISO or display format."
+      },
+      "image_count": {
+        "title": "Image Count",
+        "type": "integer",
+        "description": "Number of images in the listing."
+      },
+      "url": {
+        "title": "URL",
+        "type": "string",
+        "description": "Canonical listing URL."
+      }
+    }
+  },
+  "views": {
+    "overview": {
+      "title": "Overview",
+      "transformation": {
+        "fields": [
+          "urn",
+          "title",
+          "price",
+          "category",
+          "region",
+          "city",
+          "posted_at",
+          "image_count",
+          "url"
+        ]
+      },
+      "display": {
+        "component": "table",
+        "properties": {
+          "urn": {
+            "label": "URN",
+            "format": "text"
+          },
+          "title": {
+            "label": "Title",
+            "format": "text"
+          },
+          "price": {
+            "label": "Price",
+            "format": "number"
+          },
+          "category": {
+            "label": "Category",
+            "format": "text"
+          },
+          "region": {
+            "label": "Region",
+            "format": "text"
+          },
+          "city": {
+            "label": "City",
+            "format": "text"
+          },
+          "posted_at": {
+            "label": "Posted At",
+            "format": "text"
+          },
+          "image_count": {
+            "label": "Images",
+            "format": "number"
+          },
+          "url": {
+            "label": "URL",
+            "format": "link"
+          }
+        }
+      }
+    }
+  }
+}

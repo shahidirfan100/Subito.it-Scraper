@@ -1,0 +1,58 @@
+{
+    "title": "Subito.it Scraper",
+    "description": "Collect listings from Subito.it using direct API requests. Use either a Subito URL or keyword/location.",
+    "type": "object",
+    "schemaVersion": 1,
+    "properties": {
+        "startUrl": {
+            "title": "URL",
+            "type": "string",
+            "description": "A Subito listing URL, for example https://www.subito.it/annunci-italia/vendita/usato/",
+            "editor": "textfield",
+            "prefill": "https://www.subito.it/annunci-italia/vendita/motori/"
+        },
+        "keyword": {
+            "title": "Keyword",
+            "type": "string",
+            "description": "Search keyword used when URL has no query term.",
+            "editor": "textfield",
+            "prefill": "occhiali moscot"
+        },
+        "location": {
+            "title": "Location",
+            "type": "string",
+            "description": "Optional location text merged into the keyword search.",
+            "editor": "textfield",
+            "prefill": "Roma"
+        },
+        "results_wanted": {
+            "title": "Results wanted",
+            "type": "integer",
+            "description": "Maximum number of records to save.",
+            "minimum": 1,
+            "default": 20,
+            "prefill": 20,
+            "editor": "number"
+        },
+        "max_pages": {
+            "title": "Max pages",
+            "type": "integer",
+            "description": "Maximum number of API pages to fetch.",
+            "minimum": 1,
+            "default": 10,
+            "prefill": 10,
+            "editor": "number"
+        },
+        "proxyConfiguration": {
+            "title": "Proxy configuration",
+            "type": "object",
+            "description": "Use Apify Proxy for stable production runs.",
+            "editor": "proxy",
+            "default": {
+                "useApifyProxy": false
+            }
+        }
+    },
+    "required": [],
+    "additionalProperties": false
+}
