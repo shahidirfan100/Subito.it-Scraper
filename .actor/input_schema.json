@@ -9,7 +9,7 @@
             "type": "string",
             "description": "A Subito listing URL, for example https://www.subito.it/annunci-italia/vendita/usato/",
             "editor": "textfield",
-            "prefill": "https://www.subito.it/annunci-italia/vendita/motori/"
+            "prefill": "https://www.subito.it/annunci-italia/vendita/usato/"
         },
         "keyword": {
             "title": "Keyword",

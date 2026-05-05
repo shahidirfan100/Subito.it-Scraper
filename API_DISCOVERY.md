@@ -1,8 +1,8 @@
 ## Selected API
 
-- Endpoint: `https://hades.subito.it/v1/search/items`
+- Endpoint: `https://www.subito.it/hades/v1/search/items`
 - Method: `GET`
-- Required headers: `X-Subito-Channel: web` and standard browser-like headers
+- Required headers: `X-Subito-Channel: web`, `Origin: https://www.subito.it`, `Referer: https://www.subito.it/annunci-italia/vendita/usato/`, and standard browser-like headers
 - Auth: None
 - Pagination: `start` + `lim` query params
 - Core query params used:
@@ -31,20 +31,30 @@ This provides substantially more fields than HTML card parsing.
 
 ### Supporting endpoint
 
-- `https://hades.subito.it/v1/values/categories`
+- `https://www.subito.it/hades/v1/values/categories`
   - Used to map category slug in URL paths to category id (`c`) dynamically.
+
+### 2026-05-05 live revalidation note
+
+- `https://hades.subito.it/v1/search/items` now returns `403` with a `geo.captcha-delivery.com` interstitial URL in the JSON body for direct actor requests.
+- `https://www.subito.it/hades/v1/search/items` returned `200` with listing data during the same live check.
+- Both category endpoints still worked during the same validation pass:
+  - `https://www.subito.it/hades/v1/values/categories`
+  - `https://hades.subito.it/v1/values/categories`
+- The actor should prefer the `www.subito.it/hades` path first and keep the direct `hades.subito.it` path only as a fallback candidate.
 
 ### Recommended endpoint note
 
 - `https://hades.subito.it/v1/search/items/hp-recommended`
   - Returns listing data, but is not used for deep pagination because its response does not expose a reliably advancing pagination token.
-  - Broad marketplace browsing now uses `https://hades.subito.it/v1/search/items` with `t=s`, `start`, and `lim` so runs can continue beyond 100 items.
+  - Broad marketplace browsing now uses `https://www.subito.it/hades/v1/search/items` with `t=s`, `start`, and `lim` so runs can continue beyond 100 items.
 
 ## Candidate evaluation
 
 ### Candidate A (Selected)
 
-- Endpoint: `https://hades.subito.it/v1/search/items`
+- Endpoint: `https://www.subito.it/hades/v1/search/items`
+- Previous direct endpoint: `https://hades.subito.it/v1/search/items`
 - Returns JSON directly: Yes (+30)
 - >15 unique fields: Yes (+25)
 - No auth required: Yes (+20)
@@ -68,7 +78,7 @@ This provides substantially more fields than HTML card parsing.
 
 - URLScan public scans for Subito listing pages were used to identify `hades` network domain and request patterns.
 - Client bundle analysis confirmed dedicated search methods using `/v1/search/items` plus mapped search parameters.
-- Direct HTTP calls to `hades` endpoints succeeded without browser rendering.
+- Live validation on 2026-05-05 confirmed the working actor path is the `www.subito.it/hades/...` route, while the direct `hades.subito.it` search route is challenged for this traffic pattern.
 
 ## Implementation decision
 

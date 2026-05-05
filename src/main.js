@@ -1,10 +1,31 @@
+import { readFile } from 'node:fs/promises';
+
 import { Actor, log } from 'apify';
 import { Dataset } from 'crawlee';
 import { gotScraping } from 'got-scraping';
 
-const HADES_BASE_URL = 'https://hades.subito.it';
-const SEARCH_ITEMS_ENDPOINT = `${HADES_BASE_URL}/v1/search/items`;
-const CATEGORY_VALUES_ENDPOINT = `${HADES_BASE_URL}/v1/values/categories`;
+const WEB_BASE_URL = 'https://www.subito.it';
+const MARKETPLACE_REFERER_URL = `${WEB_BASE_URL}/annunci-italia/vendita/usato/`;
+const SEARCH_ENDPOINT_CANDIDATES = [
+    {
+        name: 'web-hades-search',
+        url: `${WEB_BASE_URL}/hades/v1/search/items`,
+    },
+    {
+        name: 'direct-hades-search',
+        url: 'https://hades.subito.it/v1/search/items',
+    },
+];
+const CATEGORY_ENDPOINT_CANDIDATES = [
+    {
+        name: 'web-hades-categories',
+        url: `${WEB_BASE_URL}/hades/v1/values/categories`,
+    },
+    {
+        name: 'direct-hades-categories',
+        url: 'https://hades.subito.it/v1/values/categories',
+    },
+];
 
 const SUBITO_HEADERS = {
     Accept: 'application/json',
@@ -14,13 +35,40 @@ const SUBITO_HEADERS = {
 };
 
 let categorySlugMapCache;
+let preferredSearchEndpointName;
+let preferredCategoryEndpointName;
 
 await Actor.init();
+
+const isPlainObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const hasMeaningfulInput = (value) => isPlainObject(value) && Object.keys(value).length > 0;
 
 const toPositiveInteger = (value, fallback) => {
     const parsed = Number(value);
     if (!Number.isFinite(parsed) || parsed < 1) return fallback;
     return Math.floor(parsed);
+};
+
+const loadLocalInputFallback = async () => {
+    if (process.env.APIFY_IS_AT_HOME === '1') return {};
+
+    try {
+        const parsed = JSON.parse(await readFile('INPUT.json', 'utf8'));
+        if (!hasMeaningfulInput(parsed)) return {};
+
+        log.info('Using INPUT.json fallback for local run because no Actor input was provided.');
+        return parsed;
+    } catch (error) {
+        log.warning(`Could not load local INPUT.json fallback: ${error.message}`);
+        return {};
+    }
+};
+
+const getRuntimeInput = async () => {
+    const actorInput = (await Actor.getInput()) || {};
+    if (hasMeaningfulInput(actorInput)) return actorInput;
+    return loadLocalInputFallback();
 };
 
 const compactValue = (value) => {
@@ -80,6 +128,127 @@ const buildFeatureMap = (features = []) => {
     }
 
     return map;
+};
+
+const buildRequestHeaders = (url) => {
+    const headers = { ...SUBITO_HEADERS };
+
+    if (url.startsWith(WEB_BASE_URL)) {
+        headers.Accept = 'application/json, text/plain, */*';
+        headers.Origin = WEB_BASE_URL;
+        headers.Referer = MARKETPLACE_REFERER_URL;
+        headers['Sec-Fetch-Dest'] = 'empty';
+        headers['Sec-Fetch-Mode'] = 'cors';
+        headers['Sec-Fetch-Site'] = 'same-site';
+    }
+
+    return headers;
+};
+
+const getOrderedCandidates = (candidates, preferredName) => {
+    if (!preferredName) return candidates;
+
+    const preferred = candidates.find((candidate) => candidate.name === preferredName);
+    if (!preferred) return candidates;
+
+    return [
+        preferred,
+        ...candidates.filter((candidate) => candidate.name !== preferredName),
+    ];
+};
+
+const createRequestError = (message, details = {}) => Object.assign(new Error(message), details);
+
+const getChallengeUrl = (body) => {
+    const challengeUrl = typeof body?.url === 'string' ? body.url : '';
+    return challengeUrl.includes('captcha-delivery.com') ? challengeUrl : '';
+};
+
+const getAdsFromResponse = (body) => {
+    const candidates = [
+        body?.ads,
+        body?.items,
+        body?.results,
+        body?.data?.ads,
+        body?.data?.items,
+        body?.data?.results,
+    ];
+
+    return candidates.find((candidate) => Array.isArray(candidate)) || null;
+};
+
+const getResponseKeys = (body) => (isPlainObject(body) ? Object.keys(body) : []);
+
+const validateSearchResponse = ({ statusCode, body, url }) => {
+    const challengeUrl = getChallengeUrl(body);
+    if (challengeUrl) {
+        return createRequestError(`Blocked by anti-bot challenge for ${url}`, {
+            code: 'ANTI_BOT_CHALLENGE',
+            challengeUrl,
+        });
+    }
+
+    if (statusCode >= 400) {
+        return createRequestError(`HTTP ${statusCode} returned by ${url}`, {
+            code: 'HTTP_ERROR',
+            statusCode,
+            responseKeys: getResponseKeys(body),
+        });
+    }
+
+    if (!getAdsFromResponse(body)) {
+        return createRequestError(`Search response shape changed for ${url}`, {
+            code: 'UNEXPECTED_RESPONSE_SHAPE',
+            responseKeys: getResponseKeys(body),
+        });
+    }
+
+    return undefined;
+};
+
+const validateCategoryResponse = ({ statusCode, body, url }) => {
+    const challengeUrl = getChallengeUrl(body);
+    if (challengeUrl) {
+        return createRequestError(`Blocked by anti-bot challenge for ${url}`, {
+            code: 'ANTI_BOT_CHALLENGE',
+            challengeUrl,
+        });
+    }
+
+    if (statusCode >= 400) {
+        return createRequestError(`HTTP ${statusCode} returned by ${url}`, {
+            code: 'HTTP_ERROR',
+            statusCode,
+            responseKeys: getResponseKeys(body),
+        });
+    }
+
+    if (!Array.isArray(body?.values)) {
+        return createRequestError(`Category response shape changed for ${url}`, {
+            code: 'UNEXPECTED_RESPONSE_SHAPE',
+            responseKeys: getResponseKeys(body),
+        });
+    }
+
+    return undefined;
+};
+
+const resolveNextStart = (body, currentStart, itemsCount) => {
+    const rawCandidates = [
+        body?.start,
+        body?.pagination?.next_start,
+        body?.pagination?.nextStart,
+        body?.next_start,
+        body?.nextStart,
+    ];
+
+    for (const rawCandidate of rawCandidates) {
+        const parsed = Number(rawCandidate);
+        if (Number.isFinite(parsed) && parsed > currentStart) return parsed;
+    }
+
+    const fallbackStart = currentStart + itemsCount;
+    return fallbackStart > currentStart ? fallbackStart : undefined;
 };
 
 const parseStartUrl = (startUrl, categorySlugMap) => {
@@ -199,27 +368,59 @@ const buildAdRecord = (ad) => {
     });
 };
 
-const fetchJson = async ({ url, searchParams, proxyConfiguration, maxRetries = 3 }) => {
+const fetchJson = async ({
+    endpointCandidates,
+    searchParams,
+    proxyConfiguration,
+    preferredEndpointName,
+    maxRetries = 3,
+    validateBody,
+}) => {
     let lastError;
+    const orderedCandidates = getOrderedCandidates(endpointCandidates, preferredEndpointName);
 
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-            const proxyUrl = proxyConfiguration ? await proxyConfiguration.newUrl() : undefined;
-            const response = await gotScraping({
-                url,
-                searchParams,
-                headers: SUBITO_HEADERS,
-                proxyUrl,
-                responseType: 'json',
-                timeout: { request: 30000 },
-                retry: { limit: 0 },
-            });
+    for (const endpointCandidate of orderedCandidates) {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                const proxyUrl = proxyConfiguration ? await proxyConfiguration.newUrl() : undefined;
+                const response = await gotScraping({
+                    url: endpointCandidate.url,
+                    searchParams,
+                    headers: buildRequestHeaders(endpointCandidate.url),
+                    proxyUrl,
+                    responseType: 'json',
+                    timeout: { request: 30000 },
+                    retry: { limit: 0 },
+                    throwHttpErrors: false,
+                });
 
-            return response.body;
-        } catch (error) {
-            lastError = error;
-            if (attempt < maxRetries) {
-                log.warning(`Request failed (attempt ${attempt}/${maxRetries}) for ${url}: ${error.message}`);
+                const validationError = validateBody?.({
+                    statusCode: response.statusCode,
+                    body: response.body,
+                    url: endpointCandidate.url,
+                });
+                if (validationError) throw validationError;
+
+                return {
+                    body: response.body,
+                    endpointCandidate,
+                };
+            } catch (error) {
+                lastError = error;
+
+                const errorDetails = {
+                    code: error.code,
+                    statusCode: error.statusCode,
+                    responseKeys: error.responseKeys,
+                    challengeUrl: error.challengeUrl,
+                };
+
+                if (attempt < maxRetries) {
+                    log.warning(`Request failed (attempt ${attempt}/${maxRetries}) for ${endpointCandidate.url}: ${error.message}`, errorDetails);
+                    continue;
+                }
+
+                log.warning(`Endpoint candidate exhausted: ${endpointCandidate.url}`, errorDetails);
             }
         }
     }
@@ -231,11 +432,14 @@ const getCategorySlugMap = async (proxyConfiguration) => {
     if (categorySlugMapCache) return categorySlugMapCache;
 
     try {
-        const body = await fetchJson({
-            url: CATEGORY_VALUES_ENDPOINT,
+        const { body, endpointCandidate } = await fetchJson({
+            endpointCandidates: CATEGORY_ENDPOINT_CANDIDATES,
             searchParams: undefined,
             proxyConfiguration,
+            preferredEndpointName: preferredCategoryEndpointName,
+            validateBody: validateCategoryResponse,
         });
+        preferredCategoryEndpointName = endpointCandidate.name;
 
         const map = new Map();
         for (const category of body?.values || []) {
@@ -253,7 +457,7 @@ const getCategorySlugMap = async (proxyConfiguration) => {
 };
 
 const main = async () => {
-    const input = (await Actor.getInput()) || {};
+    const input = await getRuntimeInput();
     const {
         startUrl,
         url,
@@ -302,19 +506,20 @@ const main = async () => {
     for (let page = 1; page <= maxPages && totalSaved < resultsWanted; page++) {
         const remaining = resultsWanted - totalSaved;
         const limit = Math.min(remaining, 100);
-
-        const endpoint = SEARCH_ITEMS_ENDPOINT;
         const paramsForRequest = { ...searchParams, lim: limit, start: currentStart };
 
-        log.info(`Fetching page ${page}`, { endpoint, params: paramsForRequest });
+        log.info(`Fetching page ${page}`, { endpointPreference: preferredSearchEndpointName || 'auto', params: paramsForRequest });
 
-        const response = await fetchJson({
-            url: endpoint,
+        const { body: response, endpointCandidate } = await fetchJson({
+            endpointCandidates: SEARCH_ENDPOINT_CANDIDATES,
             searchParams: paramsForRequest,
             proxyConfiguration,
+            preferredEndpointName: preferredSearchEndpointName,
+            validateBody: validateSearchResponse,
         });
+        preferredSearchEndpointName = endpointCandidate.name;
 
-        const ads = Array.isArray(response?.ads) ? response.ads : [];
+        const ads = getAdsFromResponse(response) || [];
         if (!ads.length) {
             log.info('No more ads returned by API, stopping pagination.');
             break;
@@ -333,7 +538,7 @@ const main = async () => {
             log.info(`Saved ${records.length} records`, { totalSaved, resultsWanted });
         }
 
-        const nextStart = Number(response?.start);
+        const nextStart = resolveNextStart(response, currentStart, ads.length);
         if (!Number.isFinite(nextStart) || nextStart <= currentStart) {
             log.info('Pagination token did not advance, stopping to avoid duplicate pages.');
             break;

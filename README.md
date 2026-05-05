@@ -40,7 +40,7 @@ Export structured data to dashboards, spreadsheets, and data warehouses.
 | `location` | String | No | `"Roma"` | Optional location text combined with keyword. |
 | `results_wanted` | Integer | No | `20` | Maximum number of records to save. |
 | `max_pages` | Integer | No | `10` | Maximum number of pages to fetch. |
-| `proxyConfiguration` | Object | No | Apify Proxy residential | Proxy settings for reliable production runs. |
+| `proxyConfiguration` | Object | No | `{"useApifyProxy": false}` | Proxy settings for reliable production runs. |
 
 ---
 
